@@ -45,3 +45,10 @@ CREATE TYPE matrix (
     INPUT = matrix_in,
     OUTPUT = matrix_out
 );
+
+CREATE FUNCTION matrix_plus(matrix, matrix)
+	RETURNS matrix
+	AS 'MODULE_PATHNAME', 'matrix_plus'
+	LANGUAGE C
+	IMMUTABLE STRICT
+PARALLEL SAFE;
