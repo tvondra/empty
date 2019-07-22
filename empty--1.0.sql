@@ -58,3 +58,16 @@ CREATE OPERATOR + (
 	LEFTARG = matrix,
 	RIGHTARG = matrix
 );
+
+CREATE FUNCTION matrix_multiply(matrix, matrix)
+	RETURNS matrix
+	AS 'MODULE_PATHNAME', 'matrix_multiply'
+	LANGUAGE C
+	IMMUTABLE STRICT
+PARALLEL SAFE;
+
+CREATE OPERATOR * (
+	FUNCTION = matrix_multiply,
+	LEFTARG = matrix,
+	RIGHTARG = matrix
+);

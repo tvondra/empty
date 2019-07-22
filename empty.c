@@ -21,6 +21,7 @@ PG_FUNCTION_INFO_V1(empty_random_string);
 PG_FUNCTION_INFO_V1(matrix_in);
 PG_FUNCTION_INFO_V1(matrix_out);
 PG_FUNCTION_INFO_V1(matrix_plus);
+PG_FUNCTION_INFO_V1(matrix_multiply);
 
 typedef struct matrix {
 	int	n;
@@ -93,6 +94,29 @@ matrix_plus(PG_FUNCTION_ARGS)
 	m3->values[1] = m1->values[1] + m2->values[1];
 	m3->values[2] = m1->values[2] + m2->values[2];
 	m3->values[3] = m1->values[3] + m2->values[3];
+
+	PG_RETURN_CSTRING(v3);
+}
+
+Datum
+matrix_multiply(PG_FUNCTION_ARGS)
+{
+	char   *v1 = PG_GETARG_POINTER(0);
+	char   *v2 = PG_GETARG_POINTER(1);
+	char   *v3;
+
+	matrix *m1 = (matrix *) VARDATA(v1);
+	matrix *m2 = (matrix *) VARDATA(v2);
+	matrix *m3;
+
+	v3 = palloc(VARHDRSZ + matrix_len(2));
+	SET_VARSIZE(v3, VARHDRSZ + matrix_len(2));
+	m3 = (matrix *) VARDATA(v3);
+
+	m3->values[0] = m1->values[0] * m2->values[0] + m1->values[1] * m2->values[2];
+	m3->values[1] = m1->values[0] * m2->values[1] + m1->values[1] * m2->values[3];
+	m3->values[2] = m1->values[2] * m2->values[0] + m1->values[3] * m2->values[2];
+	m3->values[3] = m1->values[2] * m2->values[1] + m1->values[3] * m2->values[3];
 
 	PG_RETURN_CSTRING(v3);
 }
