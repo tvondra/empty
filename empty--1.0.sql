@@ -52,3 +52,9 @@ CREATE FUNCTION matrix_plus(matrix, matrix)
 	LANGUAGE C
 	IMMUTABLE STRICT
 PARALLEL SAFE;
+
+CREATE OPERATOR + (
+	FUNCTION = matrix_plus,
+	LEFTARG = matrix,
+	RIGHTARG = matrix
+);
