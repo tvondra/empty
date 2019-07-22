@@ -22,6 +22,7 @@ PG_FUNCTION_INFO_V1(matrix_in);
 PG_FUNCTION_INFO_V1(matrix_out);
 PG_FUNCTION_INFO_V1(matrix_plus);
 PG_FUNCTION_INFO_V1(matrix_multiply);
+PG_FUNCTION_INFO_V1(matrix_powers);
 
 typedef struct matrix {
 	int	n;
@@ -176,4 +177,69 @@ empty_random_string(PG_FUNCTION_ARGS)
 
 	// PG_RETURN_TEXT_P(cstring_to_text(rand_value));
 	PG_RETURN_TEXT_P(v);
+}
+
+
+Datum
+matrix_powers(PG_FUNCTION_ARGS)
+{
+	FuncCallContext	 *funcctx;
+	int				  call_cntr;
+	int				  max_calls;
+	TupleDesc			tupdesc;
+
+	/* stuff done only on the first call of the function */
+	if (SRF_IS_FIRSTCALL())
+	{
+		MemoryContext   oldcontext;
+
+		/* create a function context for cross-call persistence */
+		funcctx = SRF_FIRSTCALL_INIT();
+
+		/* switch to memory context appropriate for multiple function calls */
+		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+		/* total number of tuples to be returned */
+		funcctx->max_calls = PG_GETARG_INT32(1);
+
+		/* Build a tuple descriptor for our result type */
+		if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("function returning record called in context "
+							"that cannot accept type record")));
+
+		funcctx->tuple_desc = tupdesc;
+
+		MemoryContextSwitchTo(oldcontext);
+	}
+
+	/* stuff done on every call of the function */
+	funcctx = SRF_PERCALL_SETUP();
+
+	call_cntr = funcctx->call_cntr;
+	max_calls = funcctx->max_calls;
+
+	if (call_cntr < max_calls)	/* do when there is more left to send */
+	{
+		Datum		values[2];
+		bool		nulls[2];
+		HeapTuple	tuple;
+		Datum		result;
+
+		memset(nulls, 0, sizeof(nulls));
+
+		values[0] = PointerGetDatum(PG_GETARG_POINTER(0));
+		values[1] = call_cntr;
+
+		/* Build and return the tuple. */
+		tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
+		result = HeapTupleGetDatum(tuple);
+
+		SRF_RETURN_NEXT(funcctx, result);
+	}
+	else	/* do when there is no more left */
+	{
+		SRF_RETURN_DONE(funcctx);
+	}
 }

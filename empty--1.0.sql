@@ -71,3 +71,13 @@ CREATE OPERATOR * (
 	LEFTARG = matrix,
 	RIGHTARG = matrix
 );
+
+-- CREATE FUNCTION array_to_matrix(int[][]) RETURNS matrix ...;
+-- CREATE CAST (int[][] as matrix) WITH FUNCTION array_to_matrix(int[][]);
+
+CREATE FUNCTION matrix_powers(matrix, int, out matrix, out int)
+	RETURNS SETOF record
+	AS 'MODULE_PATHNAME', 'matrix_powers'
+	LANGUAGE C
+	IMMUTABLE STRICT
+PARALLEL SAFE;
