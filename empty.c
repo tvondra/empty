@@ -15,6 +15,7 @@
 #include "storage/shmem.h"
 #include "access/heapam.h"
 #include "utils/builtins.h"
+#include "utils/lsyscache.h"
 #include "utils/snapmgr.h"
 #include "miscadmin.h"
 #include "catalog/pg_type.h"
@@ -377,8 +378,8 @@ empty_read_table(PG_FUNCTION_ARGS)
 			Datum	value;
 			bool	isnull;
 
-			if (tdesc->attrs[i].atttypid != INT4OID)
-				continue;
+			// if (tdesc->attrs[i].atttypid != INT4OID)
+			// continue;
 
 			value = heap_getattr(tuple, tdesc->attrs[i].attnum,
 								 tdesc, &isnull);
@@ -386,8 +387,18 @@ empty_read_table(PG_FUNCTION_ARGS)
 			if (isnull)
 				elog(WARNING, "%s = (null)", NameStr(tdesc->attrs[i].attname));
 			else
-				elog(WARNING, "%s = %d", NameStr(tdesc->attrs[i].attname),
-										 DatumGetInt32(value));
+			{
+				Datum outval;
+				Oid		outfunc;
+				bool	isvarlena;
+
+				getTypeOutputInfo(tdesc->attrs[i].atttypid, &outfunc, &isvarlena);
+
+				outval = OidFunctionCall1(outfunc, value);
+
+				elog(WARNING, "%s = %s", NameStr(tdesc->attrs[i].attname),
+										 DatumGetCString(outval));
+			}
 		}
 	}
 
