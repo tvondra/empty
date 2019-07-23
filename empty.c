@@ -10,6 +10,8 @@
 #include "utils/builtins.h"
 #include "utils/numeric.h"
 #include "utils/elog.h"
+#include "storage/ipc.h"
+#include "storage/shmem.h"
 
 #include "empty.h"
 
@@ -31,6 +33,18 @@ typedef struct matrix {
 	int	n;
 	int	values[FLEXIBLE_ARRAY_MEMBER];
 } matrix;
+
+
+
+typedef struct EmptySharedState {
+	int count_notice;
+	int count_info;
+	int count_error;
+	int count_warning;
+} EmptySharedState;
+
+static EmptySharedState *emptySharedState = NULL;
+
 
 static int
 matrix_len(int n)
@@ -257,6 +271,7 @@ matrix_powers(PG_FUNCTION_ARGS)
 }
 
 static emit_log_hook_type prev_emit_log_hook = NULL;
+static shmem_startup_hook_type prev_shmem_startup_hook = NULL;
 
 static void
 empty_emit_log_hook(ErrorData *edata)
@@ -264,8 +279,48 @@ empty_emit_log_hook(ErrorData *edata)
 	if (prev_emit_log_hook)
 		prev_emit_log_hook(edata);
 
+	if (!emptySharedState)
+		return;
+
 	if (edata->elevel == ERROR)
-		elog(WARNING, "chytil jsem ERROR: %s", edata->message);
+		emptySharedState->count_error++;
+	else if (edata->elevel == WARNING)
+		emptySharedState->count_warning++;
+	else if (edata->elevel == NOTICE)
+		emptySharedState->count_notice++;
+	else if (edata->elevel == INFO)
+		emptySharedState->count_info++;
+}
+
+/*
+ * Estimate shared memory space needed.
+ */
+static Size
+empty_memsize(void)
+{
+	return sizeof(EmptySharedState);
+}
+
+static void
+empty_shmem_startup(void)
+{
+	bool		found;
+
+	if (prev_shmem_startup_hook)
+		prev_shmem_startup_hook();
+
+	emptySharedState = ShmemInitStruct("empty",
+						   sizeof(EmptySharedState),
+						   &found);
+
+	if (!found)
+	{
+		/* First time through ... */
+		emptySharedState->count_notice = 0;
+		emptySharedState->count_info = 0;
+		emptySharedState->count_error = 0;
+		emptySharedState->count_warning = 0;
+	}
 }
 
 /*
@@ -274,6 +329,11 @@ empty_emit_log_hook(ErrorData *edata)
 void
 _PG_init(void)
 {
+	RequestAddinShmemSpace(empty_memsize());
+
+	prev_shmem_startup_hook = shmem_startup_hook;
+	shmem_startup_hook = empty_shmem_startup;
+
 	prev_emit_log_hook = emit_log_hook;
 	emit_log_hook = empty_emit_log_hook;
 }
