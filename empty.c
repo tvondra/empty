@@ -13,6 +13,11 @@
 #include "storage/ipc.h"
 #include "storage/lwlock.h"
 #include "storage/shmem.h"
+#include "access/heapam.h"
+#include "utils/builtins.h"
+#include "utils/snapmgr.h"
+#include "miscadmin.h"
+#include "catalog/pg_type.h"
 
 #include "empty.h"
 
@@ -29,6 +34,8 @@ PG_FUNCTION_INFO_V1(matrix_out);
 PG_FUNCTION_INFO_V1(matrix_plus);
 PG_FUNCTION_INFO_V1(matrix_multiply);
 PG_FUNCTION_INFO_V1(matrix_powers);
+PG_FUNCTION_INFO_V1(empty_read_table);
+
 
 typedef struct matrix {
 	int	n;
@@ -344,4 +351,49 @@ _PG_init(void)
 
 	prev_emit_log_hook = emit_log_hook;
 	emit_log_hook = empty_emit_log_hook;
+}
+
+Datum
+empty_read_table(PG_FUNCTION_ARGS)
+{
+	Oid			relid = PG_GETARG_OID(0);
+	Relation	rel;
+	TupleDesc	tdesc;
+	HeapTuple	tuple;
+	TableScanDesc scan;
+
+	rel = relation_open(relid, AccessShareLock);
+
+	tdesc = RelationGetDescr(rel);
+
+	scan = table_beginscan(rel, GetActiveSnapshot(), 0, NULL);
+
+	/* scan the relation */
+	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
+	{
+		int i;
+		for (i = 0; i < tdesc->natts; i++)
+		{
+			Datum	value;
+			bool	isnull;
+
+			if (tdesc->attrs[i].atttypid != INT4OID)
+				continue;
+
+			value = heap_getattr(tuple, tdesc->attrs[i].attnum,
+								 tdesc, &isnull);
+
+			if (isnull)
+				elog(WARNING, "%s = (null)", NameStr(tdesc->attrs[i].attname));
+			else
+				elog(WARNING, "%s = %d", NameStr(tdesc->attrs[i].attname),
+										 DatumGetInt32(value));
+		}
+	}
+
+	table_endscan(scan);
+
+	relation_close(rel, AccessShareLock);
+
+	PG_RETURN_VOID();
 }

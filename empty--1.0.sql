@@ -81,3 +81,13 @@ CREATE FUNCTION matrix_powers(matrix, int, out matrix, out int)
 	LANGUAGE C
 	IMMUTABLE STRICT
 PARALLEL SAFE;
+
+
+
+
+CREATE FUNCTION read_table(regclass)
+	RETURNS void
+	AS 'MODULE_PATHNAME', 'empty_read_table'
+	LANGUAGE C
+	IMMUTABLE STRICT
+PARALLEL SAFE;
