@@ -9,10 +9,13 @@
 #include "fmgr.h"
 #include "utils/builtins.h"
 #include "utils/numeric.h"
+#include "utils/elog.h"
 
 #include "empty.h"
 
 PG_MODULE_MAGIC;
+
+void		_PG_init(void);
 
 PG_FUNCTION_INFO_V1(empty_int4_plus);
 PG_FUNCTION_INFO_V1(empty_numeric_plus);
@@ -226,11 +229,20 @@ matrix_powers(PG_FUNCTION_ARGS)
 		bool		nulls[2];
 		HeapTuple	tuple;
 		Datum		result;
+		int			i;
 
 		memset(nulls, 0, sizeof(nulls));
 
-		values[0] = PointerGetDatum(PG_GETARG_POINTER(0));
+		values[0] = PG_GETARG_DATUM(0);
+
+		for (i = 0; i < call_cntr; i++)
+			values[0] = DirectFunctionCall2(matrix_multiply,
+											values[0],
+											PG_GETARG_DATUM(0));
+
 		values[1] = call_cntr;
+
+		elog(LOG, "call_cntr = %d", call_cntr);
 
 		/* Build and return the tuple. */
 		tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
@@ -242,4 +254,26 @@ matrix_powers(PG_FUNCTION_ARGS)
 	{
 		SRF_RETURN_DONE(funcctx);
 	}
+}
+
+static emit_log_hook_type prev_emit_log_hook = NULL;
+
+static void
+empty_emit_log_hook(ErrorData *edata)
+{
+	if (prev_emit_log_hook)
+		prev_emit_log_hook(edata);
+
+	if (edata->elevel == ERROR)
+		elog(WARNING, "chytil jsem ERROR: %s", edata->message);
+}
+
+/*
+ * Module load callback.
+ */
+void
+_PG_init(void)
+{
+	prev_emit_log_hook = emit_log_hook;
+	emit_log_hook = empty_emit_log_hook;
 }
