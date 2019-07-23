@@ -11,6 +11,7 @@
 #include "utils/numeric.h"
 #include "utils/elog.h"
 #include "storage/ipc.h"
+#include "storage/lwlock.h"
 #include "storage/shmem.h"
 
 #include "empty.h"
@@ -37,6 +38,7 @@ typedef struct matrix {
 
 
 typedef struct EmptySharedState {
+	LWLock	   *lock;
 	int count_notice;
 	int count_info;
 	int count_error;
@@ -282,6 +284,8 @@ empty_emit_log_hook(ErrorData *edata)
 	if (!emptySharedState)
 		return;
 
+	LWLockAcquire(emptySharedState->lock, LW_EXCLUSIVE);
+
 	if (edata->elevel == ERROR)
 		emptySharedState->count_error++;
 	else if (edata->elevel == WARNING)
@@ -290,6 +294,8 @@ empty_emit_log_hook(ErrorData *edata)
 		emptySharedState->count_notice++;
 	else if (edata->elevel == INFO)
 		emptySharedState->count_info++;
+
+	LWLockRelease(emptySharedState->lock);
 }
 
 /*
@@ -316,6 +322,7 @@ empty_shmem_startup(void)
 	if (!found)
 	{
 		/* First time through ... */
+		emptySharedState->lock = &(GetNamedLWLockTranche("empty"))->lock;
 		emptySharedState->count_notice = 0;
 		emptySharedState->count_info = 0;
 		emptySharedState->count_error = 0;
@@ -330,6 +337,7 @@ void
 _PG_init(void)
 {
 	RequestAddinShmemSpace(empty_memsize());
+	RequestNamedLWLockTranche("empty", 1);
 
 	prev_shmem_startup_hook = shmem_startup_hook;
 	shmem_startup_hook = empty_shmem_startup;
