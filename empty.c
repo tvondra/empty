@@ -6,6 +6,7 @@
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
+
 #include "fmgr.h"
 #include "utils/builtins.h"
 #include "utils/numeric.h"
@@ -22,6 +23,10 @@
 #include "lib/stringinfo.h"
 #include "replication/logical.h"
 #include "replication/output_plugin.h"
+#include "commands/defrem.h"
+#include "foreign/fdwapi.h"
+
+#include "stdlib.h"
 
 #include "empty.h"
 
@@ -40,6 +45,7 @@ PG_FUNCTION_INFO_V1(matrix_plus);
 PG_FUNCTION_INFO_V1(matrix_multiply);
 PG_FUNCTION_INFO_V1(matrix_powers);
 PG_FUNCTION_INFO_V1(empty_read_table);
+PG_FUNCTION_INFO_V1(empty_fdw_handler);
 
 
 typedef struct matrix {
@@ -421,6 +427,7 @@ empty_read_table(PG_FUNCTION_ARGS)
 
 typedef struct MyDecodingState {
 	bool	moje_option;
+	int64	cislo;
 } MyDecodingState;
 
 static void
@@ -451,6 +458,10 @@ empty_startup_cb (struct LogicalDecodingContext *ctx,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
 								strVal(elem->arg), elem->defname)));
+		}
+		else if (strcmp(elem->defname, "moje-cislo") == 0)
+		{
+			s->cislo = atoi(strVal(elem->arg));
 		}
 		else
 		{
@@ -553,7 +564,7 @@ empty_message_cb (struct LogicalDecodingContext *ctx,
 	{
 		OutputPluginPrepareWrite(ctx, true);
 		// appendStringInfo(ctx->out, "MESSAGE %s", message);
-		appendStringInfo(ctx->out, "MESSAGE %d ", s->moje_option);
+		appendStringInfo(ctx->out, "MESSAGE %d %ld ", s->moje_option, s->cislo);
 		appendBinaryStringInfo(ctx->out, message, message_size);
 		OutputPluginWrite(ctx, true);
 	}
@@ -585,3 +596,76 @@ _PG_output_plugin_init (OutputPluginCallbacks *cb)
 	cb->filter_by_origin_cb = empty_filter_origin_cb;
 	cb->shutdown_cb = empty_shutdown_cb;
 }
+
+static void empty_GetForeignRelSize (PlannerInfo *root,
+											RelOptInfo *baserel,
+											Oid foreigntableid)
+{}
+
+static void empty_GetForeignPaths (PlannerInfo *root,
+										  RelOptInfo *baserel,
+										  Oid foreigntableid)
+{}
+
+static ForeignScan *empty_GetForeignPlan (PlannerInfo *root,
+												 RelOptInfo *baserel,
+												 Oid foreigntableid,
+												 ForeignPath *best_path,
+												 List *tlist,
+												 List *scan_clauses,
+												 Plan *outer_plan)
+{
+	return NULL;
+}
+
+static void empty_BeginForeignScan (ForeignScanState *node,
+										   int eflags)
+{}
+
+static TupleTableSlot * empty_IterateForeignScan (ForeignScanState *node)
+{
+	return NULL;
+}
+
+static bool empty_RecheckForeignScan (ForeignScanState *node,
+											 TupleTableSlot *slot)
+{
+	return true;
+}
+
+static void empty_ReScanForeignScan (ForeignScanState *node)
+{ }
+
+static void empty_EndForeignScan (ForeignScanState *node)
+{ }
+
+Datum
+empty_fdw_handler(PG_FUNCTION_ARGS)
+{
+	// alokace FdwRoutine
+	// FdwRoutine *routine = palloc(sizeof(FdwRoutine));
+	// memset(routine, 0, sizeof(FdwRoutine));
+	// routine->type = T_FdwRoutine;
+
+	FdwRoutine *routine = makeNode(FdwRoutine);
+
+	// nasetovani callbacku
+	routine->GetForeignRelSize = empty_GetForeignRelSize;
+	routine->GetForeignPaths = empty_GetForeignPaths;
+	routine->GetForeignPlan = empty_GetForeignPlan;
+	routine->BeginForeignScan = empty_BeginForeignScan;
+	routine->IterateForeignScan = empty_IterateForeignScan;
+	routine->RecheckForeignScan = empty_RecheckForeignScan;
+	routine->ReScanForeignScan = empty_ReScanForeignScan;
+	routine->EndForeignScan = empty_EndForeignScan;
+
+	// vratit jako pointer
+	PG_RETURN_POINTER(routine);
+}
+
+
+
+
+
+
+
