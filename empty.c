@@ -20,6 +20,7 @@
 #include "miscadmin.h"
 #include "catalog/pg_type.h"
 #include "lib/stringinfo.h"
+#include "replication/logical.h"
 #include "replication/output_plugin.h"
 
 #include "empty.h"
@@ -423,6 +424,7 @@ empty_startup_cb (struct LogicalDecodingContext *ctx,
 										OutputPluginOptions *options,
 										bool is_init)
 {
+	options->output_type = OUTPUT_PLUGIN_TEXTUAL_OUTPUT;
 	elog(WARNING, "startup");
 }
 
@@ -439,7 +441,44 @@ empty_change_cb (struct LogicalDecodingContext *ctx,
 									   Relation relation,
 									   ReorderBufferChange *change)
 {
-	elog(WARNING, "change");
+	if (change->action == REORDER_BUFFER_CHANGE_INSERT)
+	{
+		TupleDesc	tdesc = RelationGetDescr(relation);
+		ReorderBufferTupleBuf *buf = change->data.tp.newtuple;
+		HeapTuple	tuple = &buf->tuple;
+		int i;
+
+		OutputPluginPrepareWrite(ctx, true);
+
+		for (i = 0; i < tdesc->natts; i++)
+		{
+			Datum	value;
+			bool	isnull;
+
+			value = heap_getattr(tuple, tdesc->attrs[i].attnum,
+								 tdesc, &isnull);
+
+			if (isnull)
+				appendStringInfo(ctx->out, "%s=(null)", NameStr(tdesc->attrs[i].attname));
+
+			else
+			{
+				Datum outval;
+				Oid		outfunc;
+				bool	isvarlena;
+
+				getTypeOutputInfo(tdesc->attrs[i].atttypid, &outfunc, &isvarlena);
+
+				outval = OidFunctionCall1(outfunc, value);
+
+				appendStringInfo(ctx->out, "%s=%s ", NameStr(tdesc->attrs[i].attname),
+										 DatumGetCString(outval));
+
+			}
+		}
+
+		OutputPluginWrite(ctx, true);
+	}
 }
 
 static void
@@ -469,13 +508,20 @@ empty_message_cb (struct LogicalDecodingContext *ctx,
 										Size message_size,
 										const char *message)
 {
+	if (strcmp(prefix, "empty") == 0)
+	{
+		OutputPluginPrepareWrite(ctx, true);
+		appendStringInfo(ctx->out, "MESSAGE %s", message);
+		OutputPluginWrite(ctx, true);
+	}
 }
 
 static bool
 empty_filter_origin_cb (struct LogicalDecodingContext *ctx,
 											   RepOriginId origin_id)
 {
-	return true;
+	elog(WARNING, "origin");
+	return false;
 }
 
 static void
