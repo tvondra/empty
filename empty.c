@@ -20,12 +20,14 @@
 #include "miscadmin.h"
 #include "catalog/pg_type.h"
 #include "lib/stringinfo.h"
+#include "replication/output_plugin.h"
 
 #include "empty.h"
 
 PG_MODULE_MAGIC;
 
 void		_PG_init(void);
+void		_PG_output_plugin_init(OutputPluginCallbacks *cb);
 
 PG_FUNCTION_INFO_V1(empty_int4_plus);
 PG_FUNCTION_INFO_V1(empty_numeric_plus);
@@ -414,4 +416,83 @@ empty_read_table(PG_FUNCTION_ARGS)
 	relation_close(rel, AccessShareLock);
 
 	PG_RETURN_VOID();
+}
+
+static void
+empty_startup_cb (struct LogicalDecodingContext *ctx,
+										OutputPluginOptions *options,
+										bool is_init)
+{
+	elog(WARNING, "startup");
+}
+
+static void
+empty_begin_cb (struct LogicalDecodingContext *ctx,
+									  ReorderBufferTXN *txn)
+{
+	elog(WARNING, "begin");
+}
+
+static void
+empty_change_cb (struct LogicalDecodingContext *ctx,
+									   ReorderBufferTXN *txn,
+									   Relation relation,
+									   ReorderBufferChange *change)
+{
+	elog(WARNING, "change");
+}
+
+static void
+empty_truncate_cb (struct LogicalDecodingContext *ctx,
+										 ReorderBufferTXN *txn,
+										 int nrelations,
+										 Relation relations[],
+										 ReorderBufferChange *change)
+{
+	elog(WARNING, "truncate");
+}
+
+static void
+empty_commit_cb (struct LogicalDecodingContext *ctx,
+									   ReorderBufferTXN *txn,
+									   XLogRecPtr commit_lsn)
+{
+	elog(WARNING, "commit");
+}
+
+static void
+empty_message_cb (struct LogicalDecodingContext *ctx,
+										ReorderBufferTXN *txn,
+										XLogRecPtr message_lsn,
+										bool transactional,
+										const char *prefix,
+										Size message_size,
+										const char *message)
+{
+}
+
+static bool
+empty_filter_origin_cb (struct LogicalDecodingContext *ctx,
+											   RepOriginId origin_id)
+{
+	return true;
+}
+
+static void
+empty_shutdown_cb (struct LogicalDecodingContext *ctx)
+{
+	elog(WARNING, "shutdown");
+}
+
+void
+_PG_output_plugin_init (OutputPluginCallbacks *cb)
+{
+	cb->startup_cb = empty_startup_cb;
+	cb->begin_cb = empty_begin_cb;
+	cb->change_cb = empty_change_cb;
+	cb->truncate_cb = empty_truncate_cb;
+	cb->commit_cb = empty_commit_cb;
+	cb->message_cb = empty_message_cb;
+	cb->filter_by_origin_cb = empty_filter_origin_cb;
+	cb->shutdown_cb = empty_shutdown_cb;
 }
