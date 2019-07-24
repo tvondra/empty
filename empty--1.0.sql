@@ -93,7 +93,7 @@ CREATE FUNCTION read_table(regclass)
 PARALLEL SAFE;
 
 
-CREATE FUNCTION empty_fdw_handler() RETURNS internal
+CREATE FUNCTION empty_fdw_handler() RETURNS fdw_handler
 	AS 'MODULE_PATHNAME', 'empty_fdw_handler'
 	LANGUAGE C;
 
