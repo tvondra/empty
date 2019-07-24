@@ -419,12 +419,51 @@ empty_read_table(PG_FUNCTION_ARGS)
 	PG_RETURN_VOID();
 }
 
+typedef struct MyDecodingState {
+	bool	moje_option;
+} MyDecodingState;
+
 static void
 empty_startup_cb (struct LogicalDecodingContext *ctx,
 										OutputPluginOptions *options,
 										bool is_init)
 {
+	ListCell	*option;
+	MyDecodingState *s = palloc(sizeof(MyDecodingState));
+
 	options->output_type = OUTPUT_PLUGIN_TEXTUAL_OUTPUT;
+
+	s->moje_option = false;
+
+	foreach(option, ctx->output_plugin_options)
+	{
+		DefElem    *elem = lfirst(option);
+
+		Assert(elem->arg == NULL || IsA(elem->arg, String));
+
+		if (strcmp(elem->defname, "moje-option") == 0)
+		{
+			/* if option does not provide a value, it means its value is true */
+			if (elem->arg == NULL)
+				s->moje_option = true;
+			else if (!parse_bool(strVal(elem->arg), &s->moje_option))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
+								strVal(elem->arg), elem->defname)));
+		}
+		else
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("option \"%s\" = \"%s\" is unknown",
+							elem->defname,
+							elem->arg ? strVal(elem->arg) : "(null)")));
+		}
+	}
+
+	ctx->output_plugin_private = s;
+
 	elog(WARNING, "startup");
 }
 
@@ -508,10 +547,14 @@ empty_message_cb (struct LogicalDecodingContext *ctx,
 										Size message_size,
 										const char *message)
 {
+	MyDecodingState *s = (MyDecodingState *) ctx->output_plugin_private;
+
 	if (strcmp(prefix, "empty") == 0)
 	{
 		OutputPluginPrepareWrite(ctx, true);
-		appendStringInfo(ctx->out, "MESSAGE %s", message);
+		// appendStringInfo(ctx->out, "MESSAGE %s", message);
+		appendStringInfo(ctx->out, "MESSAGE %d ", s->moje_option);
+		appendBinaryStringInfo(ctx->out, message, message_size);
 		OutputPluginWrite(ctx, true);
 	}
 }
