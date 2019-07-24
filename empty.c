@@ -19,6 +19,7 @@
 #include "utils/snapmgr.h"
 #include "miscadmin.h"
 #include "catalog/pg_type.h"
+#include "lib/stringinfo.h"
 
 #include "empty.h"
 
@@ -373,19 +374,21 @@ empty_read_table(PG_FUNCTION_ARGS)
 	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{
 		int i;
+		StringInfoData	str;
+
+		initStringInfo(&str);
+
 		for (i = 0; i < tdesc->natts; i++)
 		{
 			Datum	value;
 			bool	isnull;
 
-			// if (tdesc->attrs[i].atttypid != INT4OID)
-			// continue;
-
 			value = heap_getattr(tuple, tdesc->attrs[i].attnum,
 								 tdesc, &isnull);
 
 			if (isnull)
-				elog(WARNING, "%s = (null)", NameStr(tdesc->attrs[i].attname));
+				appendStringInfo(&str, "%s=(null)", NameStr(tdesc->attrs[i].attname));
+
 			else
 			{
 				Datum outval;
@@ -396,10 +399,13 @@ empty_read_table(PG_FUNCTION_ARGS)
 
 				outval = OidFunctionCall1(outfunc, value);
 
-				elog(WARNING, "%s = %s", NameStr(tdesc->attrs[i].attname),
+				appendStringInfo(&str, "%s=%s ", NameStr(tdesc->attrs[i].attname),
 										 DatumGetCString(outval));
+
 			}
 		}
+
+		elog(WARNING, "radek = %s", str.data);
 	}
 
 	table_endscan(scan);
