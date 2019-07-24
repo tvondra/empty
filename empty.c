@@ -363,6 +363,9 @@ empty_read_table(PG_FUNCTION_ARGS)
 	TupleDesc	tdesc;
 	HeapTuple	tuple;
 	TableScanDesc scan;
+	StringInfoData	str;
+
+	initStringInfo(&str);
 
 	rel = relation_open(relid, AccessShareLock);
 
@@ -374,9 +377,6 @@ empty_read_table(PG_FUNCTION_ARGS)
 	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{
 		int i;
-		StringInfoData	str;
-
-		initStringInfo(&str);
 
 		for (i = 0; i < tdesc->natts; i++)
 		{
@@ -406,6 +406,7 @@ empty_read_table(PG_FUNCTION_ARGS)
 		}
 
 		elog(WARNING, "radek = %s", str.data);
+		resetStringInfo(&str);
 	}
 
 	table_endscan(scan);
