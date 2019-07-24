@@ -91,3 +91,10 @@ CREATE FUNCTION read_table(regclass)
 	LANGUAGE C
 	IMMUTABLE STRICT
 PARALLEL SAFE;
+
+
+CREATE FUNCTION empty_fdw_handler() RETURNS internal
+	AS 'MODULE_PATHNAME', 'empty_fdw_handler'
+	LANGUAGE C;
+
+CREATE FOREIGN DATA WRAPPER empty_fdw HANDLER empty_fdw_handler;
