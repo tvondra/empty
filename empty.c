@@ -709,10 +709,26 @@ static ForeignScan *empty_GetForeignPlan (PlannerInfo *root,
 
 static void empty_BeginForeignScan (ForeignScanState *node,
 										   int eflags)
-{}
+{
+	// otevrit soubor (FILE *)
+	// ulozit do ForeignScanState->fdw_state
+}
 
 static TupleTableSlot * empty_IterateForeignScan (ForeignScanState *node)
 {
+	TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
+
+	// precti radek z CSV souboru
+	fgets(radek, 1024, f);
+	// pokud najdes data, vrat radek, jinak NULL
+	
+	sscanf(radek, "%s,%d,%f", &str, &x, &y);
+	// data do -> slot->tts_values;
+	slot->tts_values[1] = Int32GetDatum(x);
+	slot->tts_isnull[1] = false;
+	
+	// data do -> slot->tts_isnull;
+	ExecStoreVirtualTuple(slot);
 	return NULL;
 }
 
@@ -720,7 +736,9 @@ static void empty_ReScanForeignScan (ForeignScanState *node)
 { }
 
 static void empty_EndForeignScan (ForeignScanState *node)
-{ }
+{
+	// zavri soubor
+}
 
 static void empty_ExplainForeignScan (ForeignScanState *node,
 											 struct ExplainState *es)
