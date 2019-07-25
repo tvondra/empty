@@ -29,6 +29,7 @@
 #include "optimizer/restrictinfo.h"
 #include "optimizer/planmain.h"
 #include "optimizer/optimizer.h"
+#include "commands/explain.h"
 
 #include "stdlib.h"
 #include <sys/stat.h>
@@ -700,7 +701,7 @@ static ForeignScan *empty_GetForeignPlan (PlannerInfo *root,
 							scan_clauses,
 							baserel->relid,
 							NIL,
-							NIL, // fdw_private
+							baserel->fdw_private,
 							NIL,
 							NIL,
 							outer_plan);
@@ -721,6 +722,14 @@ static void empty_ReScanForeignScan (ForeignScanState *node)
 static void empty_EndForeignScan (ForeignScanState *node)
 { }
 
+static void empty_ExplainForeignScan (ForeignScanState *node,
+											 struct ExplainState *es)
+{
+	CSVScanPrivate *data = (CSVScanPrivate *) ((ForeignScan *) node->ss.ps.plan)->fdw_private;
+
+	ExplainPropertyText("filename", data->filename, es);
+}
+
 Datum
 empty_fdw_handler(PG_FUNCTION_ARGS)
 {
@@ -739,6 +748,7 @@ empty_fdw_handler(PG_FUNCTION_ARGS)
 	routine->IterateForeignScan = empty_IterateForeignScan;
 	routine->ReScanForeignScan = empty_ReScanForeignScan;
 	routine->EndForeignScan = empty_EndForeignScan;
+	routine->ExplainForeignScan = empty_ExplainForeignScan;
 
 	// vratit jako pointer
 	PG_RETURN_POINTER(routine);
