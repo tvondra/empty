@@ -727,27 +727,22 @@ static TupleTableSlot * empty_IterateForeignScan (ForeignScanState *node)
 	int				b;
 	double			c;
 
-	// precti radek z CSV souboru, pokud zadne dalsi radky vrat NULL
-	if (!fgets(radek, 1024, f))
+	if (!fgets(radek, 1024, f)) // precti radek z CSV souboru, pokud zadne dalsi radky vrat NULL
 		return NULL;
 
-	// parsovani radky se znamym formatem
-	sscanf(radek, "%c,%d,%lf", a, &b, &c);
+	sscanf(radek, "%c,%d,%lf", a, &b, &c);	// parsovani radky se znamym formatem
 
 	// data do -> slot->tts_values/slot->tts_isnull;
 	ExecClearTuple(slot);
 
-	// a text
 	a[1] = '\0';
-	slot->tts_values[0] = PointerGetDatum(cstring_to_text(a));
+	slot->tts_values[0] = PointerGetDatum(cstring_to_text(a));		// a text
 	slot->tts_isnull[0] = false;
 
-	// b int
-	slot->tts_values[1] = Int32GetDatum(b);
+	slot->tts_values[1] = Int32GetDatum(b); 	// b int
 	slot->tts_isnull[1] = false;
 
-	// c double
-	slot->tts_values[2] = Float8GetDatum(c);
+	slot->tts_values[2] = Float8GetDatum(c);	// c double
 	slot->tts_isnull[2] = false;
 
 	ExecStoreVirtualTuple(slot);
