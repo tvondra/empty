@@ -607,20 +607,17 @@ _PG_output_plugin_init (OutputPluginCallbacks *cb)
 }
 
 typedef struct CSVScanPrivate {
-	char   *filename;
+	char   *directory;
 	int64	rows;
 	int64	bytes;
+	pg_atomic_uint32 *fileno;	/* index of the next file */
 } CSVScanPrivate;
 
-static void sample_file(char *filename, int64 *rows, int64 *bytes)
+static int sample_file(char *filename)
 {
 	FILE		   *f;
-	struct stat		buf;
 	int				nlines;
 	int				nbytes;
-
-	stat(filename, &buf);
-	*bytes = buf.st_size;
 
 	f = fopen(filename, "r");
 
@@ -636,9 +633,56 @@ static void sample_file(char *filename, int64 *rows, int64 *bytes)
 		}
 	}
 
-	*rows = *bytes / (nbytes / nlines);
-
 	fclose(f);
+
+	return (nbytes / nlines);
+}
+
+static int64 total_size(char *directory)
+{
+	int i = 0;
+	int64	total_size = 0;
+
+	while (true)
+	{
+		struct stat             buf;
+		char	filename[1024];
+		sprintf(filename, "%s/%d.csv", directory, i);
+
+		if (stat(filename, &buf) != 0)
+			break;
+		
+		total_size += buf.st_size;
+		i++;
+	}
+
+	return total_size;
+}
+
+static void sample_files(char *directory, int64 *rows, int64 *bytes)
+{
+	char	filename[1024];
+	int		row_len;
+	int64	size;
+
+	sprintf(filename, "%s/0.csv", directory);
+
+	row_len = sample_file(filename);
+	size = total_size(directory);
+
+	*rows = size / row_len;
+	*bytes = size;
+}
+
+static FILE *next_file(CSVScanPrivate *data)
+{
+	char	filename[1024];
+
+	int		fileno = pg_atomic_fetch_add_u32(data->fileno, 1);
+
+	sprintf(filename, "%s/%d.csv", data->directory, fileno);
+
+	return fopen(filename, "r");
 }
 
 static void empty_GetForeignRelSize (PlannerInfo *root,
@@ -648,9 +692,9 @@ static void empty_GetForeignRelSize (PlannerInfo *root,
 	CSVScanPrivate *data = palloc(sizeof(CSVScanPrivate));
 
 	// hardcoded for now
-	data->filename = "/home/user/tmp/c.csv";
+	data->directory = "/home/user/tmp/data/";
 
-	sample_file(data->filename, &data->rows, &data->bytes);
+	sample_files(data->directory, &data->rows, &data->bytes);
 
 	/* TODO podivat se na soubor, stat(), odhady podle velikosti ... */
 	// alokace struktury (velikost souboru, pocet radek, jmeno souboru ..)
@@ -732,13 +776,18 @@ static void empty_BeginForeignScan (ForeignScanState *node,
 	ForeignScan *scan = (ForeignScan *) node->ss.ps.plan;
 	CSVScanPrivate *data = (CSVScanPrivate *) scan->fdw_private;
 
+	data->fileno = palloc(sizeof(pg_atomic_uint64));
+	pg_atomic_init_u32(data->fileno, 0);
+
 	// otevrit soubor (FILE *)
 	// ulozit do ForeignScanState->fdw_state
-	node->fdw_state = fopen(data->filename, "r");
+	node->fdw_state = next_file(data);
 }
 
 static TupleTableSlot * empty_IterateForeignScan (ForeignScanState *node)
 {
+	ForeignScan *scan = (ForeignScan *) node->ss.ps.plan;
+	CSVScanPrivate *data = (CSVScanPrivate *) scan->fdw_private;
 	TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
 	FILE		   *f = node->fdw_state;
 	char			radek[1024];
@@ -746,27 +795,35 @@ static TupleTableSlot * empty_IterateForeignScan (ForeignScanState *node)
 	int				b;
 	double			c;
 
-	if (!fgets(radek, 1024, f)) // precti radek z CSV souboru, pokud zadne dalsi radky vrat NULL
-		return NULL;
+	while (node->fdw_state)
+	{
+		if (!fgets(radek, 1024, f)) // precti radek z CSV souboru, pokud zadne dalsi radky vrat NULL
+		{
+			node->fdw_state = next_file(data);
+			continue;
+		}
 
-	sscanf(radek, "%c,%d,%lf", a, &b, &c);	// parsovani radky se znamym formatem
+		sscanf(radek, "%c,%d,%lf", a, &b, &c);	// parsovani radky se znamym formatem
 
-	// data do -> slot->tts_values/slot->tts_isnull;
-	ExecClearTuple(slot);
+		// data do -> slot->tts_values/slot->tts_isnull;
+		ExecClearTuple(slot);
 
-	a[1] = '\0';
-	slot->tts_values[0] = PointerGetDatum(cstring_to_text(a));		// a text
-	slot->tts_isnull[0] = false;
+		a[1] = '\0';
+		slot->tts_values[0] = PointerGetDatum(cstring_to_text(a));		// a text
+		slot->tts_isnull[0] = false;
 
-	slot->tts_values[1] = Int32GetDatum(b); 	// b int
-	slot->tts_isnull[1] = false;
+		slot->tts_values[1] = Int32GetDatum(b); 	// b int
+		slot->tts_isnull[1] = false;
 
-	slot->tts_values[2] = Float8GetDatum(c);	// c double
-	slot->tts_isnull[2] = false;
+		slot->tts_values[2] = Float8GetDatum(c);	// c double
+		slot->tts_isnull[2] = false;
 
-	ExecStoreVirtualTuple(slot);
+		ExecStoreVirtualTuple(slot);
 
-	return slot;
+		return slot;
+	}
+
+	return NULL;
 }
 
 static void empty_ReScanForeignScan (ForeignScanState *node)
@@ -783,7 +840,7 @@ static void empty_ExplainForeignScan (ForeignScanState *node,
 {
 	CSVScanPrivate *data = (CSVScanPrivate *) ((ForeignScan *) node->ss.ps.plan)->fdw_private;
 
-	ExplainPropertyText("filename", data->filename, es);
+	ExplainPropertyText("directory", data->directory, es);
 }
 
 static Size empty_EstimateDSMForeignScan (ForeignScanState *node,
@@ -796,6 +853,12 @@ static void empty_InitializeDSMForeignScan (ForeignScanState *node,
 												   ParallelContext *pcxt,
 												   void *coordinate)
 {
+	CSVScanPrivate *csv = (CSVScanPrivate *) node->fdw_state;
+
+	csv->fileno = shm_toc_allocate(pcxt->toc, sizeof(pg_atomic_uint32));
+	pg_atomic_init_u32(csv->fileno, 0);
+
+	shm_toc_insert(pcxt->toc, node->ss.ps.plan->plan_node_id, csv->fileno);
 }
 
 static void empty_ReInitializeDSMForeignScan (ForeignScanState *node,
@@ -808,6 +871,9 @@ static void empty_InitializeWorkerForeignScan (ForeignScanState *node,
 													  shm_toc *toc,
 													  void *coordinate)
 {
+	CSVScanPrivate *csv = (CSVScanPrivate *) node->fdw_state;
+
+	csv->fileno = shm_toc_lookup(toc, node->ss.ps.plan->plan_node_id, false);
 }
 
 static bool empty_IsForeignScanParallelSafe (PlannerInfo *root,
