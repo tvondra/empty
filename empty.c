@@ -25,6 +25,9 @@
 #include "replication/output_plugin.h"
 #include "commands/defrem.h"
 #include "foreign/fdwapi.h"
+#include "optimizer/pathnode.h"
+#include "optimizer/restrictinfo.h"
+#include "optimizer/planmain.h"
 
 #include "stdlib.h"
 
@@ -600,12 +603,28 @@ _PG_output_plugin_init (OutputPluginCallbacks *cb)
 static void empty_GetForeignRelSize (PlannerInfo *root,
 											RelOptInfo *baserel,
 											Oid foreigntableid)
-{}
+{
+	/* TODO podivat se na soubor, stat(), odhady podle velikosti ... */
+	baserel->rows = 10000;
+}
 
 static void empty_GetForeignPaths (PlannerInfo *root,
 										  RelOptInfo *baserel,
 										  Oid foreigntableid)
-{}
+{
+	// ForeignPath *path = makeNode(ForeignPath);
+	// path->...
+	
+	ForeignPath *path = create_foreignscan_path(root, baserel,
+											NULL,
+											baserel->rows, 1.0, 1000.0,
+											NIL,
+											baserel->lateral_relids,
+											NULL,
+											NULL);
+
+	add_path(baserel, (Path *) path);
+}
 
 static ForeignScan *empty_GetForeignPlan (PlannerInfo *root,
 												 RelOptInfo *baserel,
@@ -615,7 +634,16 @@ static ForeignScan *empty_GetForeignPlan (PlannerInfo *root,
 												 List *scan_clauses,
 												 Plan *outer_plan)
 {
-	return NULL;
+	scan_clauses = extract_actual_clauses(scan_clauses, false);
+
+	return make_foreignscan(tlist,
+							scan_clauses,
+							baserel->relid,
+							NIL,
+							NIL, // fdw_private
+							NIL,
+							NIL,
+							outer_plan);
 }
 
 static void empty_BeginForeignScan (ForeignScanState *node,
@@ -625,12 +653,6 @@ static void empty_BeginForeignScan (ForeignScanState *node,
 static TupleTableSlot * empty_IterateForeignScan (ForeignScanState *node)
 {
 	return NULL;
-}
-
-static bool empty_RecheckForeignScan (ForeignScanState *node,
-											 TupleTableSlot *slot)
-{
-	return true;
 }
 
 static void empty_ReScanForeignScan (ForeignScanState *node)
@@ -655,7 +677,6 @@ empty_fdw_handler(PG_FUNCTION_ARGS)
 	routine->GetForeignPlan = empty_GetForeignPlan;
 	routine->BeginForeignScan = empty_BeginForeignScan;
 	routine->IterateForeignScan = empty_IterateForeignScan;
-	routine->RecheckForeignScan = empty_RecheckForeignScan;
 	routine->ReScanForeignScan = empty_ReScanForeignScan;
 	routine->EndForeignScan = empty_EndForeignScan;
 
