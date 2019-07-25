@@ -30,7 +30,7 @@
 #include "optimizer/planmain.h"
 #include "optimizer/optimizer.h"
 #include "commands/explain.h"
-
+#include "optimizer/cost.h"
 #include "stdlib.h"
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -685,6 +685,25 @@ static void empty_GetForeignPaths (PlannerInfo *root,
 											NULL);
 
 	add_path(baserel, (Path *) path);
+
+	// paralelni cesta
+	if (baserel->consider_parallel)
+	{
+		path = create_foreignscan_path(root, baserel,
+												NULL,
+												baserel->rows,
+												startup,
+												total / max_parallel_workers_per_gather,
+												NIL,
+												baserel->lateral_relids,
+												NULL,
+												NULL);
+
+		((Path *) path)->parallel_workers = max_parallel_workers_per_gather;
+		((Path *) path)->parallel_aware = true;
+
+		add_partial_path(baserel, (Path *) path);
+	}
 }
 
 static ForeignScan *empty_GetForeignPlan (PlannerInfo *root,
@@ -767,6 +786,38 @@ static void empty_ExplainForeignScan (ForeignScanState *node,
 	ExplainPropertyText("filename", data->filename, es);
 }
 
+static Size empty_EstimateDSMForeignScan (ForeignScanState *node,
+										 ParallelContext *pcxt)
+{
+	return sizeof(pg_atomic_uint32);
+}
+
+static void empty_InitializeDSMForeignScan (ForeignScanState *node,
+												   ParallelContext *pcxt,
+												   void *coordinate)
+{
+}
+
+static void empty_ReInitializeDSMForeignScan (ForeignScanState *node,
+													 ParallelContext *pcxt,
+													 void *coordinate)
+{
+}
+
+static void empty_InitializeWorkerForeignScan (ForeignScanState *node,
+													  shm_toc *toc,
+													  void *coordinate)
+{
+}
+
+static bool empty_IsForeignScanParallelSafe (PlannerInfo *root,
+													RelOptInfo *rel,
+													RangeTblEntry *rte)
+{
+	return true;
+}
+
+
 Datum
 empty_fdw_handler(PG_FUNCTION_ARGS)
 {
@@ -786,6 +837,13 @@ empty_fdw_handler(PG_FUNCTION_ARGS)
 	routine->ReScanForeignScan = empty_ReScanForeignScan;
 	routine->EndForeignScan = empty_EndForeignScan;
 	routine->ExplainForeignScan = empty_ExplainForeignScan;
+
+	// paralelni dotazy
+	routine->EstimateDSMForeignScan = empty_EstimateDSMForeignScan;
+	routine->InitializeDSMForeignScan = empty_InitializeDSMForeignScan;
+	routine->ReInitializeDSMForeignScan = empty_ReInitializeDSMForeignScan;
+	routine->InitializeWorkerForeignScan = empty_InitializeWorkerForeignScan;
+	routine->IsForeignScanParallelSafe = empty_IsForeignScanParallelSafe;
 
 	// vratit jako pointer
 	PG_RETURN_POINTER(routine);
