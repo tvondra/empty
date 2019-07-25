@@ -28,8 +28,13 @@
 #include "optimizer/pathnode.h"
 #include "optimizer/restrictinfo.h"
 #include "optimizer/planmain.h"
+#include "optimizer/optimizer.h"
 
 #include "stdlib.h"
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <fcntl.h>
+#include <stdio.h>
 
 #include "empty.h"
 
@@ -600,15 +605,58 @@ _PG_output_plugin_init (OutputPluginCallbacks *cb)
 	cb->shutdown_cb = empty_shutdown_cb;
 }
 
+typedef struct CSVScanPrivate {
+	char   *filename;
+	int64	rows;
+	int64	bytes;
+} CSVScanPrivate;
+
+static void sample_file(char *filename, int64 *rows, int64 *bytes)
+{
+	FILE		   *f;
+	struct stat		buf;
+	int				nlines;
+	int				nbytes;
+
+	stat(filename, &buf);
+	*bytes = buf.st_size;
+
+	f = fopen(filename, "r");
+
+	nbytes = 0;
+	nlines = 0;
+	while (!feof(f) && nlines < 1000)
+	{
+		char			buffer[2048];
+		if (fgets(buffer, 2048, f) == buffer)
+		{
+			nbytes += strlen(buffer);
+			nlines++;
+		}
+	}
+
+	*rows = *bytes / (nbytes / nlines);
+
+	fclose(f);
+}
+
 static void empty_GetForeignRelSize (PlannerInfo *root,
 											RelOptInfo *baserel,
 											Oid foreigntableid)
 {
+	CSVScanPrivate *data = palloc(sizeof(CSVScanPrivate));
+
+	// hardcoded for now
+	data->filename = "/home/user/tmp/c.csv";
+
+	sample_file(data->filename, &data->rows, &data->bytes);
+
 	/* TODO podivat se na soubor, stat(), odhady podle velikosti ... */
 	// alokace struktury (velikost souboru, pocet radek, jmeno souboru ..)
 	// ulozit do basrel->fdw_private
 	// upravit odhad poctu radku
-	baserel->rows = 10000;
+	baserel->rows = data->rows;
+	baserel->fdw_private = data;
 }
 
 static void empty_GetForeignPaths (PlannerInfo *root,
@@ -618,9 +666,18 @@ static void empty_GetForeignPaths (PlannerInfo *root,
 	// ForeignPath *path = makeNode(ForeignPath);
 	// path->...
 	// upravit odhady startup/total podle informaci ze struktury
+	CSVScanPrivate *data = (CSVScanPrivate *) baserel->fdw_private;
+
+	Cost	startup = seq_page_cost + cpu_tuple_cost;
+
+	Cost	total = (data->bytes / BLCKSZ) * seq_page_cost +
+					(data->rows * cpu_tuple_cost);
+
 	ForeignPath *path = create_foreignscan_path(root, baserel,
 											NULL,
-											baserel->rows, 1.0, 1000.0,
+											baserel->rows,
+											startup,
+											total,
 											NIL,
 											baserel->lateral_relids,
 											NULL,
