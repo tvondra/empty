@@ -605,6 +605,9 @@ static void empty_GetForeignRelSize (PlannerInfo *root,
 											Oid foreigntableid)
 {
 	/* TODO podivat se na soubor, stat(), odhady podle velikosti ... */
+	// alokace struktury (velikost souboru, pocet radek, jmeno souboru ..)
+	// ulozit do basrel->fdw_private
+	// upravit odhad poctu radku
 	baserel->rows = 10000;
 }
 
@@ -614,7 +617,7 @@ static void empty_GetForeignPaths (PlannerInfo *root,
 {
 	// ForeignPath *path = makeNode(ForeignPath);
 	// path->...
-	
+	// upravit odhady startup/total podle informaci ze struktury
 	ForeignPath *path = create_foreignscan_path(root, baserel,
 											NULL,
 											baserel->rows, 1.0, 1000.0,
