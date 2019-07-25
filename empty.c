@@ -710,26 +710,49 @@ static ForeignScan *empty_GetForeignPlan (PlannerInfo *root,
 static void empty_BeginForeignScan (ForeignScanState *node,
 										   int eflags)
 {
+	ForeignScan *scan = (ForeignScan *) node->ss.ps.plan;
+	CSVScanPrivate *data = (CSVScanPrivate *) scan->fdw_private;
+
 	// otevrit soubor (FILE *)
 	// ulozit do ForeignScanState->fdw_state
+	node->fdw_state = fopen(data->filename, "r");
 }
 
 static TupleTableSlot * empty_IterateForeignScan (ForeignScanState *node)
 {
 	TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
+	FILE		   *f = node->fdw_state;
+	char			radek[1024];
+	char			a[2];
+	int				b;
+	double			c;
 
-	// precti radek z CSV souboru
-	fgets(radek, 1024, f);
-	// pokud najdes data, vrat radek, jinak NULL
-	
-	sscanf(radek, "%s,%d,%f", &str, &x, &y);
-	// data do -> slot->tts_values;
-	slot->tts_values[1] = Int32GetDatum(x);
+	// precti radek z CSV souboru, pokud zadne dalsi radky vrat NULL
+	if (!fgets(radek, 1024, f))
+		return NULL;
+
+	// parsovani radky se znamym formatem
+	sscanf(radek, "%c,%d,%lf", a, &b, &c);
+
+	// data do -> slot->tts_values/slot->tts_isnull;
+	ExecClearTuple(slot);
+
+	// a text
+	a[1] = '\0';
+	slot->tts_values[0] = PointerGetDatum(cstring_to_text(a));
+	slot->tts_isnull[0] = false;
+
+	// b int
+	slot->tts_values[1] = Int32GetDatum(b);
 	slot->tts_isnull[1] = false;
-	
-	// data do -> slot->tts_isnull;
+
+	// c double
+	slot->tts_values[2] = Float8GetDatum(c);
+	slot->tts_isnull[2] = false;
+
 	ExecStoreVirtualTuple(slot);
-	return NULL;
+
+	return slot;
 }
 
 static void empty_ReScanForeignScan (ForeignScanState *node)
@@ -738,6 +761,7 @@ static void empty_ReScanForeignScan (ForeignScanState *node)
 static void empty_EndForeignScan (ForeignScanState *node)
 {
 	// zavri soubor
+	fclose(node->fdw_state);
 }
 
 static void empty_ExplainForeignScan (ForeignScanState *node,
